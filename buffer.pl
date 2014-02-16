@@ -34,8 +34,8 @@ sub fmap {
 sub pure {
     my $v = shift; croak if !defined $v;
     return sub {
-        my $s = shift;
-        return [[$v, $s]];
+        my $inp = shift;
+        return [$v, $inp];
     }
 }
 
@@ -50,20 +50,26 @@ sub combine {
     
     sub {
         my $inp = shift;
+
         my $fs = $ff->($inp);
-        my @res = map {
-            my ($fm, $inpm) = @$_;
+        if (ref $fs eq 'ARRAY') {
+            my ($fm, $inpm) = @$fs;
+
             my $vs = $fv->($inpm);
-            ## Possible lazyness
-            if (ref $vs eq 'CODE') {
+            # Possible lazyness
+            if ( ref $vs eq 'CODE') {
                 $vs = $vs->($inpm);
             }
-            map {
-                my ($vm, $inpmm) = @$_;
-                [$fm->($vm), $inpmm];
-            } @$vs;
-        } @$fs;
-        return \@res;
+            if (ref $vs eq 'ARRAY') {
+                my ($vm, $inpmm) = @$vs;
+                return [$fm->($vm), $inpmm];
+            }
+            else {
+                return $vs;
+            }
+        } else {
+            return $fs;
+        }
     };
 }
 
@@ -74,29 +80,53 @@ sub combine {
 ###    lazy  : recur(\&many, $p)
 ### This is necessary when constructing recursive parsers
 sub recur {
-    my $f    = shift or croak 'No f';
+    my $f    = shift;# or croak 'No f';
     my $args = \@_;
     my $p    = undef;
 
     sub {
         # Optimization, don't know if it works
         $p = $f->(@$args) if ! defined $p;
-        return $p;
+        return $p->(@_);
     };
 }
 
-### TODO: End of file, and not end of file
 
+### TODO: End of file, and not end of file
+sub string2errmsg {
+    my $inp    = shift;
+    my $maxlen = shift || 25;
+    
+    if ( length($inp) == 0) {
+        $inp = "<end-of-string>";
+    }
+    elsif ( length($inp) >= $maxlen) {
+        $inp = substr($inp, 0, $maxlen) . " ...";
+    }
+    return $inp;
+}
+
+
+## TODO: zero parser should take some error description as paramater.
+##       inp doesn't matter since zero will always fail.
 ### Parser that always fails
 sub zero {
-    return [];
+    my $expected   = shift;
+    
+    sub {
+        my $inp      = shift;
+        
+        return { type       => 'Parse error',
+                 input      => $inp,
+                 expected   => flatten($expected) };
+    }
 };
 
 ### Parses any character, fails if input string is empty
 sub item {
     my $inp = shift;
     if ($inp eq '') {
-        return zero();
+        return zero('item')->($inp);
     }
     else {
         my ($s1, $s2) = (substr($inp, 0, 1), substr($inp, 1));
@@ -116,14 +146,16 @@ sub char {
             return pure($s1)->($s2);
         }
         else {
-            return zero();
+            return zero($c)->($inp);
         }
     }
 }
 
 ### Regex parser
 sub re {
-    my $s     = shift or croak 'No s';
+    my $s           = shift or croak 'No s';
+    my $description = shift || $s;
+    
     my $regex = qr{^($s)(.*)$};
     
     sub {
@@ -133,7 +165,7 @@ sub re {
             return pure($s1)->($s2);
         }
         else {
-            return zero();
+            return zero($description)->($inp);
         }
     };
 }
@@ -144,23 +176,57 @@ sub choice {
     sub {
         my $inp = shift;
         my $result = undef;
-
-        for my $p(@parsers) {
-            my $st = $p->($inp);
+        
+        my @results = map {
+            my $st = $_->($inp);
+            ## Possible lazyness
             if (ref $st eq 'CODE') {
                 $st = $st->($inp);
             }
-            if (@$st) {
+            if (ref $st eq 'ARRAY') {
                 return $st;
             }
-        }
-        return zero($inp);
+            $st;
+        } @parsers;
+        ## Select the errors where the parse advanced the most,
+        ## ie. input left is as small as possible
+        my ($errors) = mostn(sub { my $r = shift;
+                                   return -(length($r->{input}));
+                               },
+                             \@results);
+        my @expected = map { $_->{expected} } @$errors;
+        return zero(\@expected)->($errors->[0]->{input});
     }
 }
 
+## Exclucive choice of 2 parsers. The first one is required to fail on parsing, the
+## next one must succed.
+## TODO: Replace with condition (maybe)(definately)
+sub xchoice {
+    my $eerp = shift or croak 'No errp'; # Expected Erroring parser
+    my $eokp = shift or croak 'No eokp'; # Expected OK parser
+    
+    sub {
+        my $inp = shift;
+        my $eer = $eerp->($inp);
+        if (ref $eer eq 'ARRAY') {
+            ## First parser succeeded, which it shouldn't
+            my ($tk) = @$eer;
+            # TODO: You can't tell this from choice(token('not'), token($tk)) erroring
+            return zero(['not', $tk])->($inp);
+        }
+        else {
+            return $eokp->($inp);
+        }
+    };
+}
+
+
 ## Ideas for support functions: list, last, number, etc.
 sub last1 {
-    return seq(\&rtlast, @_);
+    my @args = @_;
+    
+    return seq(\&rtlast, @args);
 }
 
 sub first1 {
@@ -180,6 +246,7 @@ sub cons2 {
     return seq(\&cons, $p1, $p2);
 }
 
+## TODO: Make it into a while loop instead
 sub many {
     my $p  = shift or croak 'No p';
 
@@ -240,9 +307,8 @@ sub bracket {
 sub cons {
     my $e   = shift or croak 'No e';
     my $arr = shift or croak 'No arr';
-    
-    unshift @$arr, $e;
-    return $arr;
+
+    return [$e, @$arr];
 }
 
 ### Returns the arguments as a list ref
@@ -288,10 +354,49 @@ sub map2ltree {
     return $left;
 }
 
+###
+sub flatten {
+    my $tree = shift;
+    if ( ref $tree ne 'ARRAY') {
+        return $tree;
+    }
+    else {
+        my @list = map {
+            ref $_ eq 'ARRAY' ? @{flatten($_)} : $_;
+        } @$tree;
+        return \@list;
+    }
+}
+
+
+sub mostn {
+    my $fn  = shift or croak 'No fn';   # a -> Number
+    my $lst = shift or croak 'No lst';  # [a]
+    # returns ([a], Number)
+    if (@$lst == 0) {
+        return ([], undef);
+    }
+    my $max    = $fn->($lst->[0]);
+    my $score;
+    my $len = @$lst;
+    my @mosts = $lst->[0];
+    foreach my $e (@$lst[1..($len-1)]) {
+        $score = $fn->($e);
+        if ( $score == $max ) {
+            push @mosts, $e;
+        }
+        elsif ( $score > $max ) {
+            @mosts = ($e);
+            $max = $score;
+        }
+    }
+    return (\@mosts, $max);
+}
+
 
 
 ####################### Simple calculator ####################################
-my $number = token('\d+');
+my $number = token('\d+', "a number");
 
 my $addexp;
 my $atom = choice($number,
@@ -299,9 +404,9 @@ my $atom = choice($number,
                           sub { $addexp }, # Mutual recursion//This is the only way
                           chartk(')')));
 
-my $addop   = token('[+\-]');
+my $addop   = token('[+\-]', "'+' or '-'");
 
-my $multop  = token('[*/]');
+my $multop  = token('[*/]', "'*' or '/'");
 
 my $multexp = chainl1($atom, $multop);
 
@@ -309,10 +414,47 @@ $addexp     = chainl1($multexp, $addop);
 
 my $exp     = first1($addexp, re('\s*'));
 
+##################### Logical expression parser ############################
+my $ident    = token("[[:alpha:]_-]+", "an identifier");
+
+my $logexp;
+
+my $latom    = choice(bracket(chartk('('),
+                              sub { $logexp },
+                              chartk(')')),
+                      $ident);
+
+my $unaryexp = choice(listseq(token('not'), $latom),
+                      $latom);
+
+my $andexp   = chainl1($unaryexp, token('and'));
+
+my $orexp    = chainl1($andexp, token('or'));
+
+$logexp = $orexp;
+
+sub logparse {
+    return $logexp->(@_);
+}
+
+##################### Lisp like log expressions #############################
+my $sexp;
+
+$sexp = choice($ident,
+               bracket(chartk('('),
+                       cons2(token('and|or|not|none-of'), many(sub { $sexp })),
+                       chartk(')')));
+
+sub lisp {
+    return $sexp->(@_);
+}
+
 ##################### Parser helpsers #######################################
 sub token {
-    my $pat = shift;
-    return second1(re('\s*'), re($pat));
+    my $pat         = shift;
+    my $description = shift || $pat;
+    
+    return second1(re('\s*'), re($pat, $description));
 }
 
 sub chartk {
@@ -323,10 +465,13 @@ sub chartk {
 ##################### Other functions #######################################
 sub parse {
     my $inp = shift;
-    my $results = $exp->($inp);
-    if (!@$results) { croak 'No parse'; }
-    my $result  = shift @$results;
+    my $result = $exp->($inp);
+    if (ref $result ne 'ARRAY') {
+        print Dumper($result);
+        croak "No parse";
+    }
     my ($tree, $tail) = @$result;
+    
     print "Tail: |$tail|\n";
     return evaluate($tree);
 }
@@ -350,3 +495,4 @@ sub parse {
         }
     }
 }
+
