@@ -1,3 +1,5 @@
+package PPK;
+
 use strict;
 use Carp;
 use Ted::Lambda qw( ncurry );
@@ -488,8 +490,8 @@ sub parse {
     my $inp = shift;
     my $result = $exp->($inp);
     if (ref $result ne 'ARRAY') {
-        print Dumper($result);
-        croak "No parse";
+        print "No parse";
+        return $result;
     }
     my ($tree, $tail) = @$result;
     
@@ -517,3 +519,4 @@ sub parse {
     }
 }
 
+1;
