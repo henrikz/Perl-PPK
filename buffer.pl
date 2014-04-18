@@ -29,7 +29,7 @@ sub fmap {
     return combine(pure($f), $p);
 }
 
-### $v -> ($s -> [[$v, $s]])
+### $v -> ($s -> [$v, $s])
 ### Pure parser will always succeed without consuming anything
 sub pure {
     my $v = shift; croak if !defined $v;
@@ -37,6 +37,32 @@ sub pure {
         my $inp = shift;
         return [$v, $inp];
     }
+}
+
+## (>>-) :: Parser a -> (a -> Parser b) -> Parser b
+## (>>=) :: (a -> (a,s)) -> (a -> (b -> (b,s))) -> (b -> (b,s))
+## mv: a -> (a,s)
+## mf: (a -> (b -> (b,s)))
+sub bindp {
+    my $mv = shift or croak 'No mv';
+    my $mf = shift or croak 'No mf';
+
+    sub {
+        my $inp = shift;
+        my $res = $mv->($inp);
+        ## Lazy?
+        if ( ref $res eq 'CODE' ) {
+            $res = $res->($inp);
+
+        }
+        if ( ref $res eq 'ARRAY' ) {
+            my ($v, $inpm) = @$res;
+            return $mf->($v)->($inpm);
+        }
+        else {
+            return $res;
+        }
+    };
 }
 
 # (<*>) :: Parser (a -> a') -> Parser a -> Parser a'
@@ -114,11 +140,14 @@ sub zero {
     my $expected   = shift;
     
     sub {
+        my $got      = shift;
         my $inp      = shift;
-        
+
         return { type       => 'Parse error',
                  input      => $inp,
-                 expected   => flatten($expected) };
+                 expected   => flatten($expected),
+                 got        => $got
+             };
     }
 };
 
@@ -126,7 +155,7 @@ sub zero {
 sub item {
     my $inp = shift;
     if ($inp eq '') {
-        return zero('item')->($inp);
+        return zero('item')->(undef, $inp);
     }
     else {
         my ($s1, $s2) = (substr($inp, 0, 1), substr($inp, 1));
@@ -146,7 +175,7 @@ sub char {
             return pure($s1)->($s2);
         }
         else {
-            return zero($c)->($inp);
+            return zero($c)->($s1, $inp);
         }
     }
 }
@@ -165,18 +194,34 @@ sub re {
             return pure($s1)->($s2);
         }
         else {
-            return zero($description)->($inp);
+            return zero($description)->($s1, $inp);
         }
     };
 }
+
+## If parser $p succeeds, then test the result with $pred
+## Only succeeds of $pred returns a true value
+sub predicate {
+    my $pred = shift or croak 'No pred';
+    my $p    = shift or croak 'No p';
+
+    return bindp($p, sub {
+                     my $v = shift;
+                     if ($pred->($v)) {
+                         return pure($v);
+                     }
+                     else {
+                         return zero("Parsed value $v failed predicate");
+                     }
+                 });
+}
+
 
 ### Try a list of parsers. The results of all parses that succeed are collected
 sub choice {
     my @parsers = @_;
     sub {
         my $inp = shift;
-        my $result = undef;
-        
         my @results = map {
             my $st = $_->($inp);
             ## Possible lazyness
@@ -190,35 +235,11 @@ sub choice {
         } @parsers;
         ## Select the errors where the parse advanced the most,
         ## ie. input left is as small as possible
-        my ($errors) = mostn(sub { my $r = shift;
-                                   return -(length($r->{input}));
-                               },
+        my ($errors) = mostn(sub { return -(length(shift()->{input})); },
                              \@results);
         my @expected = map { $_->{expected} } @$errors;
-        return zero(\@expected)->($errors->[0]->{input});
+        return zero(flatten(\@expected))->($errors->[0]->{input});
     }
-}
-
-## Exclucive choice of 2 parsers. The first one is required to fail on parsing, the
-## next one must succed.
-## TODO: Replace with condition (maybe)(definately)
-sub xchoice {
-    my $eerp = shift or croak 'No errp'; # Expected Erroring parser
-    my $eokp = shift or croak 'No eokp'; # Expected OK parser
-    
-    sub {
-        my $inp = shift;
-        my $eer = $eerp->($inp);
-        if (ref $eer eq 'ARRAY') {
-            ## First parser succeeded, which it shouldn't
-            my ($tk) = @$eer;
-            # TODO: You can't tell this from choice(token('not'), token($tk)) erroring
-            return zero(['not', $tk])->($inp);
-        }
-        else {
-            return $eokp->($inp);
-        }
-    };
 }
 
 
