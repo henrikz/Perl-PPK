@@ -142,13 +142,11 @@ sub zero {
     my $expected   = shift;
     
     sub {
-        my $got      = shift;
         my $inp      = shift;
 
         return { type       => 'Parse error',
                  input      => $inp,
                  expected   => flatten($expected),
-                 got        => $got
              };
     }
 };
@@ -157,7 +155,7 @@ sub zero {
 sub item {
     my $inp = shift;
     if ($inp eq '') {
-        return zero('item')->(undef, $inp);
+        return zero('item')->($inp);
     }
     else {
         my ($s1, $s2) = (substr($inp, 0, 1), substr($inp, 1));
@@ -177,7 +175,7 @@ sub char {
             return pure($s1)->($s2);
         }
         else {
-            return zero($c)->($s1, $inp);
+            return zero($c)->($inp);
         }
     }
 }
@@ -196,7 +194,7 @@ sub re {
             return pure($s1)->($s2);
         }
         else {
-            return zero($description)->($s1, $inp);
+            return zero($description)->($inp);
         }
     };
 }
@@ -391,7 +389,8 @@ sub flatten {
     }
 }
 
-
+## The member(s) if a list that scores the highest according to
+## some provided score function.
 sub mostn {
     my $fn  = shift or croak 'No fn';   # a -> Number
     my $lst = shift or croak 'No lst';  # [a]
