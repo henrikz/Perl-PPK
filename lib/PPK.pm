@@ -4,13 +4,22 @@ use strict;
 use Carp;
 use Ted::Lambda qw( ncurry );
 
+require Exporter;
+our @ISA     = ('Exporter');
+our @EXPORT = qw(do_applicative combine bindp pure zero item char re
+                 seq predicate choice many many1 sepby sepby1 endby1 chainr1 chainl1 bracket);
+
 ### TODO: General functionality - transfer to a file by itself, or Ted::Lambda
+### Does an application of a series of applicative functors
+### (*): F (a b) -> F a -> F b
+### do_applicative: (*), <pure>, Functor, ... -> F (a b c d) -> F a -> F b -> F c ...
 sub do_applicative {
     my $star  = shift or croak 'No star';
     my $pure  = shift or croak 'No pure';
     my $f     = shift or croak 'No f';
 
-    my $cf = $pure->(ncurry($f, scalar @_));
+    my $cf = $pure->(ncurry($f, scalar @_)); # TODO: curry   -> partial
+                                             #       ncurry  -> curry
     my $v;
     while (defined ($v = shift @_)) {
         $cf = $star->($cf,$v);
@@ -20,11 +29,6 @@ sub do_applicative {
 
 
 ## Parsers
-sub seq {
-    my $f   = shift or croak 'No f';
-    return do_applicative(\&combine, \&pure, $f, @_);
-}
-
 sub fmap {
     my $f = shift or croak 'No f';
     my $p = shift or croak 'No p';
@@ -55,7 +59,6 @@ sub bindp {
         ## Lazy?
         if ( ref $res eq 'CODE' ) {
             $res = $res->($inp);
-
         }
         if ( ref $res eq 'ARRAY' ) {
             my ($v, $inpm) = @$res;
@@ -199,6 +202,13 @@ sub re {
     };
 }
 
+
+sub seq {
+    my $f   = shift or croak 'No f';
+    return do_applicative(\&combine, \&pure, $f, @_);
+}
+
+
 ## If parser $p succeeds, then test the result with $pred
 ## Only succeeds of $pred returns a true value
 sub predicate {
@@ -211,7 +221,7 @@ sub predicate {
                          return pure($v);
                      }
                      else {
-                         return zero("Parsed value $v failed predicate");
+                         return zero("Parsed value [$v] failed predicate");
                      }
                  });
 }
