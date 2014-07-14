@@ -14,6 +14,7 @@ my $array = sub {
     return [ @_ ];
 };
 
+my $number = PPK::re('[[:digit:]]+', 'number');
 
 subtest "Basic non-consuming parsers" => sub {
     cmp_deeply(pure('value')->('body'), ['value', 'body'], "pure parser");
@@ -34,11 +35,11 @@ subtest "Basic consuming parsers" => sub {
                superhashof({ expected => 'w', input => '' }),
                "char parser on empty input");
     
-    cmp_deeply(PPK::re('[[:digit:]]+')->('101 Wild Turkey'),
+    cmp_deeply($number->('101 Wild Turkey'),
                ['101', ' Wild Turkey'],
                "regex parser succeeding");
     
-    cmp_deeply(PPK::re('[[:digit:]]', 'number')->('Wild Turkey 101'),
+    cmp_deeply($number->('Wild Turkey 101'),
                superhashof({ expected => 'number', input => 'Wild Turkey 101' }),
                "regex parser failing");
 
@@ -50,7 +51,7 @@ subtest "Basic consuming parsers" => sub {
 
 };
 
-subtest "Basic parser combination" => sub {
+subtest "Basic parser combinations" => sub {
     cmp_deeply(seq($array, char('a'), char('b'), char('c'))->("abcdefg"),
                [['a', 'b', 'c'], 'defg'],
                "sequence parser");
@@ -94,8 +95,49 @@ subtest "Basic parser combination" => sub {
     cmp_deeply(many1(char('a'))->('xxx'),
                superhashof( { expected => 'a', input => 'xxx'} ),
                "many1 parser on error");
-        
+
 };
 
+subtest "Repetetive parser combinations" => sub {
+    cmp_deeply(sepby1($number, char(','))->('101 Wild Turkey'),
+               [['101'], ' Wild Turkey'],
+               "sepby1 parser on one occurrence of p");
+
+    cmp_deeply(sepby1($number, char(','))->('1,2,3 and go'),
+               [['1','2','3'], ' and go'],
+               "sepby1 parser with several occurences");
+    
+    cmp_deeply(sepby1($number, char(','))->('Wild Turkey'),
+               superhashof({ expected => 'number', input => 'Wild Turkey' }),
+               "sepby1 parser on one occurrence of p");
+
+    cmp_deeply(endby1($number, char(','))->('1,2,3 and go'),
+               [['1','2'], '3 and go'],
+               "endby1 parser");
+    
+    cmp_deeply(endby1($number, char(','))->('Wild Turkey'),
+               superhashof({ expected => 'number', input => 'Wild Turkey' }),
+               "endby1 parser on error");
+    
+    cmp_deeply(endby1($number, char(','))->('101'),
+               superhashof({ expected => ',', input => ''}),
+               "endby1 parser on error - no end token");
+
+};
+
+subtest "Higher level parser combinations" => sub {
+    cmp_deeply(chainl1($number, PPK::re('[+\-]'))->("1+2-3+4"),
+               [['+', ['-', ['+', '1', '2'], '3'], '4'],''],
+               "chainl1 parser (left associative infix)");
+
+    cmp_deeply(chainr1(PPK::re('[a-z]'), PPK::re('[=$]'))->('a$b=c$d'),
+               [['$', 'a', ['=', 'b', ['$', 'c', 'd']]], ''],
+               "chainr1 parser (right associative infix)");
+
+    cmp_deeply(bracket(char('['), $number, char(']'))->('[15]'),
+               ['15', ''],
+               "bracket parser");
+                   
+};
 
 done_testing();

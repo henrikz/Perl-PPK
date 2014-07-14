@@ -294,6 +294,8 @@ sub many1 {
     return cons2($p, many($p));
 }
 
+
+
 ### Sequence delimited by $s. Delimiters are ignored in the parsing result
 sub sepby1 {
     my $p = shift or croak 'No p';
@@ -309,6 +311,14 @@ sub endby1 {
     return many1(first1($p, $s));
 }
 
+### Left associative operators
+sub chainl1 {
+    my $p = shift or croak 'No p';
+    my $s = shift or croak 'No s';
+
+    return seq(\&map2ltree, $p, many(listseq($s, $p)));
+}
+
 ## Right associative operators
 sub chainr1 {
     my $p  = shift or croak 'No p';
@@ -318,14 +328,6 @@ sub chainr1 {
                $p,
                choice(listseq($s, recur(\&chainr1, $p, $s)),
                       pure([])));
-}
-
-### Left associative operators
-sub chainl1 {
-    my $p = shift or croak 'No p';
-    my $s = shift or croak 'No s';
-
-    return seq(\&map2ltree, $p, many(listseq($s, $p)));
 }
 
 sub bracket {
