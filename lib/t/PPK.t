@@ -41,7 +41,13 @@ subtest "Basic consuming parsers" => sub {
     cmp_deeply(PPK::re('[[:digit:]]', 'number')->('Wild Turkey 101'),
                superhashof({ expected => 'number', input => 'Wild Turkey 101' }),
                "regex parser failing");
-    
+
+    cmp_deeply(PPK::re(sub { ['Proof', shift()] },
+                       '[[:digit:]]+',
+                       'US Proof')->('101 Wild Turkey'),
+               [['Proof', '101'], ' Wild Turkey'],
+               "regex parser with user applied mapping of parsed value");
+
 };
 
 subtest "Basic parser combination" => sub {

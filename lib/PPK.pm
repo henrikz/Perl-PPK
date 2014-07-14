@@ -173,7 +173,12 @@ sub char {
 
 ### Regex parser
 sub re {
+    my $f;
     my $s           = shift or croak 'No s';
+    if ( ref $s eq 'CODE') {
+        $f = $s;
+        $s = shift or croak 'No s';
+    }
     my $description = shift || $s;
     
     my $regex = qr{^($s)(.*)$};
@@ -182,6 +187,7 @@ sub re {
         my $inp = shift;
         my ($s1,$s2) = $inp =~ m{$regex};
         if (defined $1) {
+            $s1 = $f->($s1) if defined $f;
             return pure($s1)->($s2);
         }
         else {
