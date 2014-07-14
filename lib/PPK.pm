@@ -271,13 +271,22 @@ sub cons2 {
     return seq(\&cons, $p1, $p2);
 }
 
-## TODO: Make it into a while loop instead
+
 sub many {
     my $p  = shift or croak 'No p';
-
-    return choice(cons2($p, recur(\&many, $p)),
-                  pure([]));
-}
+    
+    return sub {
+        my $inp = shift;
+        my ($item, $token);
+        my @ret = ();
+        
+        while (ref($token = $p->($inp)) eq 'ARRAY') {
+            ($item, $inp) = @$token;
+            push @ret, $item;
+        }
+        return [\@ret, $inp];
+    };
+}    
 
 sub many1 {
     my $p = shift or croak 'No p';
