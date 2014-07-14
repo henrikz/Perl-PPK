@@ -6,7 +6,7 @@ use Ted::Lambda qw( ncurry );
 
 require Exporter;
 our @ISA     = ('Exporter');
-our @EXPORT = qw(do_applicative combine bindp pure zero item char re
+our @EXPORT = qw(do_applicative combine bindp pure zero char re
                  seq predicate choice many many1 sepby sepby1 endby1 chainr1 chainl1 bracket);
 
 ### TODO: General functionality - transfer to a file by itself, or Ted::Lambda
@@ -151,18 +151,6 @@ sub zero {
                  input      => $inp,
                  expected   => flatten($expected),
              };
-    }
-};
-
-### Parses any character, fails if input string is empty
-sub item {
-    my $inp = shift;
-    if ($inp eq '') {
-        return zero('item')->($inp);
-    }
-    else {
-        my ($s1, $s2) = (substr($inp, 0, 1), substr($inp, 1));
-        return pure($s1)->($s2);
     }
 };
 
@@ -491,7 +479,8 @@ sub token {
 
 sub chartk {
     my $c = shift;
-    return second1(re('\s*'), char($c));
+#    return second1(re('\s*'), char($c));
+    return token("[$c]");
 }
 
 ##################### Other functions #######################################
