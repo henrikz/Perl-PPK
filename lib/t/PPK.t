@@ -52,10 +52,49 @@ subtest "Basic consuming parsers" => sub {
 
 subtest "Basic parser combination" => sub {
     cmp_deeply(seq($array, char('a'), char('b'), char('c'))->("abcdefg"),
-               [['a', 'b','c'], 'defg'],
-               "Sequencing");
-                   
-    ## Choice ...
+               [['a', 'b', 'c'], 'defg'],
+               "sequence parser");
+
+    cmp_deeply(seq($array, char('a'), char('b'), char('x'))->('abc'),
+               superhashof( { expected => 'x', input => 'c'} ),
+               "sequence parser in error");
+    
+    cmp_deeply(choice(char('a'), char('b'), char('c'))->('bent'),
+               ['b', 'ent'],
+               "choice parser");
+
+    cmp_deeply(choice(char('a'), char('b'), char('c'))->('straight'),
+               superhashof({ expected => ['a','b','c'], input => 'straight'}),
+               "choice parser in error");
+
+    my @seqs = (seq($array, char('a'), char('b'), char('x')),
+                seq($array, char('a'), char('y'), char('z')),
+                seq($array, char('a'), char('b'), char('c')));
+
+    cmp_deeply(choice(@seqs)->('abcd'),
+               [['a', 'b', 'c'], 'd'],
+               "choice operator with arbitrary lookahead");
+
+    cmp_deeply(choice(@seqs)->('abhk'),
+               superhashof({ expected => ['x','c'], input  => 'hk'}),
+               "choice operator with arbitrary lookahead in error");
+
+    cmp_deeply(many(char('x'))->('xxxyyz'),
+               [['x','x','x'], 'yyz'],
+               "many parser consuming something");
+    
+    cmp_deeply(many(char('a'))->('xxx'),
+               [[], 'xxx'],
+               "many parser not consuming anything");
+    
+    cmp_deeply(many1(char('x'))->('xxxyyz'),
+               [['x','x','x'], 'yyz'],
+               "many1 parser");
+    
+    cmp_deeply(many1(char('a'))->('xxx'),
+               superhashof( { expected => 'a', input => 'xxx'} ),
+               "many1 parser on error");
+        
 };
 
 
