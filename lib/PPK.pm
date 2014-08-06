@@ -6,37 +6,114 @@ use Ted::Lambda qw( ncurry );
 
 require Exporter;
 our @ISA     = ('Exporter');
-our @EXPORT = qw(do_applicative combine bindp pure zero char re
-                 seq predicate choice many many1 sepby sepby1 endby1 chainr1 chainl1 bracket);
+our @EXPORT = qw(do_applicative pure zero char re
+                 seq predicate choice many many1 sepby sepby1 endby1
+                 chainr1 chainl1 bracket first1 second1 last1);
 
-### TODO: General functionality - transfer to a file by itself, or Ted::Lambda
-### Does an application of a series of applicative functors
-### (*): F (a b) -> F a -> F b
-### do_applicative: (*), <pure>, Functor, ... -> F (a b c d) -> F a -> F b -> F c ...
+=head1 NAME
+
+PPK - Perfect Parser Kit
+
+=head1 SYNOPSIS
+
+use PPK;
+
+=head1 DESCRIPTION
+
+Combinatory parser library, that lets you build complicated parsers
+by combining basic parsers in a number of ways.
+
+Your parser will work without the extra compilation step that is necessary
+when using a parser generator such as Yapp.
+
+=head1 FUNCTIONS
+
+=over 4
+
+=cut
+
+=item do_applicative($star, $pure, $f, @values)
+
+Does an application of a series of applicative functors
+
+  $pure    :: a -> F a
+  $combine :: F (a -> b) -> F a -> F b
+  $f       :: (a,b ...) -> z
+  $values  :: (a,b ...)
+
+f is then transformed into
+  $cf      :: F (a -> b -> ... -> z)
+
+Example: The list [] functor
+
+We need to supply the appropiate pure and combine functions.
+
+list_pure is a function that takes a value, and puts in into the functor, ie. the list:
+  sub list_pure {
+      my ($a) = @_;
+      return [ $a ];
+  }
+
+list_combine take a list of functions, and a list of values and combines the two:
+  sub list_combine {
+      my ($ff, $fv) = @_;
+      my @ret = ();
+      my ($f, $v);
+      for $f(@$ff) {
+          for $v(@$fv) {
+              push @ret, $f->($v);
+          }
+      }
+      return \@ret;
+  }
+
+Note, if $ff contains only one function, list_compine works like a simple map.
+
+Now, you can do eg.
+
+  do_applicative(\&list_pure,
+                 \&list_combine,
+                 sub { ($a,$b) = @_; "$a,$b" },
+                 [1..2],
+                 ['a'..'b']);
+
+     -> ['1,a', '1,b','2,a', '2,b']
+
+=cut
 sub do_applicative {
-    my $star  = shift or croak 'No star';
-    my $pure  = shift or croak 'No pure';
-    my $f     = shift or croak 'No f';
+    my $pure     = shift or croak 'No pure';
+    my $combine  = shift or croak 'No combine';
+    my $f        = shift or croak 'No f';
 
     my $cf = $pure->(ncurry($f, scalar @_)); # TODO: curry   -> partial
                                              #       ncurry  -> curry
     my $v;
     while (defined ($v = shift @_)) {
-        $cf = $star->($cf,$v);
+        $cf = $combine->($cf,$v);
     }
     return $cf;
 }
 
 
-## Parsers
+=item fmap($f, $p)
+
+Maps parser value obtained from the parser $p by applying $f.
+
+=cut
 sub fmap {
     my $f = shift or croak 'No f';
     my $p = shift or croak 'No p';
     return combine(pure($f), $p);
 }
 
+=item pure($v)
+
+Pure parser will always succeed without consuming anything.
+$v will be the parser value returned from the parser.
+
 ### $v -> ($s -> [$v, $s])
-### Pure parser will always succeed without consuming anything
+
+=cut
 sub pure {
     my $v = shift; croak if !defined $v;
     return sub {
@@ -45,36 +122,11 @@ sub pure {
     }
 }
 
-## (>>-) :: Parser a -> (a -> Parser b) -> Parser b
-## (>>=) :: (a -> (a,s)) -> (a -> (b -> (b,s))) -> (b -> (b,s))
-## mv: a -> (a,s)
-## mf: (a -> (b -> (b,s)))
-sub bindp {
-    my $mv = shift or croak 'No mv';
-    my $mf = shift or croak 'No mf';
-
-    sub {
-        my $inp = shift;
-        my $res = $mv->($inp);
-        ## Lazy?
-        if ( ref $res eq 'CODE' ) {
-            $res = $res->($inp);
-        }
-        if ( ref $res eq 'ARRAY' ) {
-            my ($v, $inpm) = @$res;
-            return $mf->($v)->($inpm);
-        }
-        else {
-            return $res;
-        }
-    };
-}
-
+# applicative parser combination
 # (<*>) :: Parser (a -> a') -> Parser a -> Parser a'
 # ff <*> fv = \inp -> do (f', inp')  <- ff inp
 #                        (v', inp'') <- fv inp'
 #                        return (f' v', inp'')
-## Applicative functors
 sub combine {
     my $ff = shift or croak 'No ff';
     my $fv = shift or croak 'No fv';
@@ -100,6 +152,31 @@ sub combine {
             }
         } else {
             return $fs;
+        }
+    };
+}
+
+## (>>-) :: Parser a -> (a -> Parser b) -> Parser b
+## (>>=) :: (a -> (a,s)) -> (a -> (b -> (b,s))) -> (b -> (b,s))
+## mv: a -> (a,s)
+## mf: (a -> (b -> (b,s)))
+sub bindp {
+    my $mv = shift or croak 'No mv';
+    my $mf = shift or croak 'No mf';
+
+    sub {
+        my $inp = shift;
+        my $res = $mv->($inp);
+        ## Lazy?
+        if ( ref $res eq 'CODE' ) {
+            $res = $res->($inp);
+        }
+        if ( ref $res eq 'ARRAY' ) {
+            my ($v, $inpm) = @$res;
+            return $mf->($v)->($inpm);
+        }
+        else {
+            return $res;
         }
     };
 }
@@ -138,9 +215,14 @@ sub string2errmsg {
 }
 
 
-## TODO: zero parser should take some error description as paramater.
-##       inp doesn't matter since zero will always fail.
-### Parser that always fails
+=item zero($expected)
+
+Parser that allways fails.
+
+$expected will be parsed on to the error
+value returned by the application of the parser.
+
+=cut
 sub zero {
     my $expected   = shift;
     
@@ -149,13 +231,17 @@ sub zero {
 
         return { type       => 'Parse error',
                  input      => $inp,
-                 expected   => flatten($expected),
+                 expected   => $expected,
              };
     }
 };
 
+=item char($c)
 
-### Parses character $c, otherwise fails
+Parses character $c. If the first character found it not equal to $c, this
+parser fails.
+
+=cut
 sub char {
     my $c = shift; croak 'No c' if ! defined $c;
     
@@ -171,7 +257,15 @@ sub char {
     }
 }
 
-### Regex parser
+=item re([$f, ]$regex[, $description)
+
+Regex parser. Will parse if the beginning of the string matches $regex.
+
+You can optionally supply:
+  $f     map function to be applied to the parsed value
+  $desc  description to be used for error reporting, eg. 'number' or 'float' or 'string'
+
+=cut
 sub re {
     my $f;
     my $s           = shift or croak 'No s';
@@ -196,15 +290,31 @@ sub re {
     };
 }
 
+=item seq($f, $p1, $p2 ...)
 
+The resulting parser will try to apply the parsers $p1, $p2 ... in sequence. If
+one of the parsers fails, seq will fails with that parsers error record.
+Combines the parsed values into a list.
+
+
+Sample:
+  seq(char('a'), char('b'))
+
+This parser will parse 'ab', yielding $f->('a','b') as it's parsed value.
+
+=cut
 sub seq {
     my $f   = shift or croak 'No f';
-    return do_applicative(\&combine, \&pure, $f, @_);
+    return do_applicative(\&pure, \&combine, $f, @_);
 }
 
 
-## If parser $p succeeds, then test the result with $pred
-## Only succeeds of $pred returns a true value
+=item predicate($pred, p)
+
+If parser $p succeeds, then test the result with $pred and subsequently
+succeed only if $pred->(<result of $p>) returns a true value.
+
+=cut
 sub predicate {
     my $pred = shift or croak 'No pred';
     my $p    = shift or croak 'No p';
@@ -220,8 +330,11 @@ sub predicate {
                  });
 }
 
+=item choice($p1, $p2 ...)
 
-### Try a list of parsers. The results of all parses that succeed are collected
+Try a set of parsers. Return the result of the first succesful one.
+
+=cut
 sub choice {
     my @parsers = @_;
     sub {
@@ -248,20 +361,6 @@ sub choice {
 
 
 ## Ideas for support functions: list, last, number, etc.
-sub last1 {
-    my @args = @_;
-    
-    return seq(\&rtlast, @args);
-}
-
-sub first1 {
-    return seq(\&rtfirst, @_);
-}
-
-sub second1 {
-    return seq(\&rtsecond, @_);
-}
-
 sub listseq {
     return seq(\&list, @_);
 }
@@ -271,7 +370,14 @@ sub cons2 {
     return seq(\&cons, $p1, $p2);
 }
 
+=item many($p)
 
+Apply $p none or many times. Resulting value is a list of the parsed values, eg.
+
+ many(char('a')) applied to 'aaa' will give you ['a', 'a', 'a'].
+ many(char('a')) applied to 'baa' will give you [].
+
+=cut
 sub many {
     my $p  = shift or croak 'No p';
     
@@ -286,14 +392,18 @@ sub many {
         }
         return [\@ret, $inp];
     };
-}    
+}
 
+=item many1($p)
+
+Like many, but requires at least one succesfull application of $p, otherwise it will fail.
+
+=cut
 sub many1 {
     my $p = shift or croak 'No p';
 
     return cons2($p, many($p));
 }
-
 
 
 ### Sequence delimited by $s. Delimiters are ignored in the parsing result
@@ -337,6 +447,34 @@ sub bracket {
 
     return seq(\&rtsecond, $open, $p, $close);
 }
+
+sub first1 {
+    return seq(\&rtfirst, @_);
+}
+
+sub second1 {
+    return seq(\&rtsecond, @_);
+}
+
+sub last1 {
+    my @args = @_;
+    
+    return seq(\&rtlast, @args);
+}
+
+
+sub token {
+    my $pat         = shift;
+    my $description = shift // $pat;
+    
+    return last1(re('\s*'), re($pat, $description));
+}
+
+sub chartk {
+    my $c = shift;
+    return last1(re('\s*'), char($c));
+}
+
 
 ### HELPERS ####
 ### Attach an element to the front of a list
@@ -484,20 +622,6 @@ $sexp = choice($ident,
 
 sub lisp {
     return $sexp->(@_);
-}
-
-##################### Parser helpsers #######################################
-sub token {
-    my $pat         = shift;
-    my $description = shift || $pat;
-    
-    return second1(re('\s*'), re($pat, $description));
-}
-
-sub chartk {
-    my $c = shift;
-#    return second1(re('\s*'), char($c));
-    return token("[$c]");
 }
 
 ##################### Other functions #######################################
