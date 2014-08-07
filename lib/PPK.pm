@@ -8,7 +8,8 @@ require Exporter;
 our @ISA     = ('Exporter');
 our @EXPORT = qw(do_applicative pure zero char re
                  seq predicate choice many many1 sepby sepby1 endby1
-                 chainr1 chainl1 bracket first1 second1 last1);
+                 chainr1 chainl1 bracket first1 second1 last1
+                 left right prefix expression);
 
 =head1 NAME
 
@@ -31,69 +32,6 @@ when using a parser generator such as Yapp.
 =over 4
 
 =cut
-
-=item do_applicative($star, $pure, $f, @values)
-
-Does an application of a series of applicative functors
-
-  $pure    :: a -> F a
-  $combine :: F (a -> b) -> F a -> F b
-  $f       :: (a,b ...) -> z
-  $values  :: (a,b ...)
-
-f is then transformed into
-  $cf      :: F (a -> b -> ... -> z)
-
-Example: The list [] functor
-
-We need to supply the appropiate pure and combine functions.
-
-list_pure is a function that takes a value, and puts in into the functor, ie. the list:
-  sub list_pure {
-      my ($a) = @_;
-      return [ $a ];
-  }
-
-list_combine take a list of functions, and a list of values and combines the two:
-  sub list_combine {
-      my ($ff, $fv) = @_;
-      my @ret = ();
-      my ($f, $v);
-      for $f(@$ff) {
-          for $v(@$fv) {
-              push @ret, $f->($v);
-          }
-      }
-      return \@ret;
-  }
-
-Note, if $ff contains only one function, list_compine works like a simple map.
-
-Now, you can do eg.
-
-  do_applicative(\&list_pure,
-                 \&list_combine,
-                 sub { ($a,$b) = @_; "$a,$b" },
-                 [1..2],
-                 ['a'..'b']);
-
-     -> ['1,a', '1,b','2,a', '2,b']
-
-=cut
-sub do_applicative {
-    my $pure     = shift or croak 'No pure';
-    my $combine  = shift or croak 'No combine';
-    my $f        = shift or croak 'No f';
-
-    my $cf = $pure->(ncurry($f, scalar @_)); # TODO: curry   -> partial
-                                             #       ncurry  -> curry
-    my $v;
-    while (defined ($v = shift @_)) {
-        $cf = $combine->($cf,$v);
-    }
-    return $cf;
-}
-
 
 =item fmap($f, $p)
 
@@ -181,12 +119,16 @@ sub bindp {
     };
 }
 
-### Make a lazy parser
+### Make a lazy parser generator
 ### Example
 ###    strict: many($p)
-##
 ###    lazy  : recur(\&many, $p)
+###
 ### This is necessary when constructing recursive parsers
+### NB:: There is 2 kinds of recursion:
+###            - recursion using parser
+###            - recursion using a parser generator.
+###      recur works with parser generators, and not with parsers.
 sub recur {
     my $f    = shift;# or croak 'No f';
     my $args = \@_;
@@ -470,9 +412,91 @@ sub token {
     return last1(re('\s*'), re($pat, $description));
 }
 
+
 sub chartk {
     my $c = shift;
     return last1(re('\s*'), char($c));
+}
+
+
+=item expression($p, $operator ...)
+
+Builds parsers for expressions based on unary or binary operators, like
+arithmetic or logic expression. The parser returns a parse tree.
+
+You need to provide
+   $p         Parser for the basic expression
+   $operator  These provide parsers for the operator expressions, and they have to
+              be mentioned in precedence order.
+                  left(char('-'))    - Makes a left associative '-' infix operator.
+                  right(char('|'))   - Makes a right associative '|' infix operator
+                  prefix(char('-'))  - Makes a '-' prefix operator
+
+Example: a simple parser for arithmetic expressions
+
+ $parser =
+    expression(re('\d+', 'number'),
+               prefix(choice(char('+'), char('-'))),
+               left  (char('^')),
+               left  (choice(char('*'), char('/'))),
+               left  (choice(char('+'), char('-'))),
+               right (char('&')),
+               right (char('|')));
+
+
+=cut
+sub expression {
+    my $p = shift or croak 'No p';
+    my @table = @_;
+    my $exp = $p;
+
+    foreach my $builder(@table) {
+        $exp = $builder->($exp);
+    }
+    return $exp;
+}
+
+=item left($op)
+
+Helper for expression() parser
+
+=cut
+sub left {
+    my $op = shift or croak 'No op';
+    return sub {
+        my $p = shift or croak 'No p';
+        return chainl1($p, $op);
+    };
+}
+
+
+=item right($op)
+
+Helper for expression() parser
+
+=cut
+sub right {
+    my $op = shift or croak 'No op';
+    return sub {
+        my $p = shift or croak 'No p';
+        return chainr1($p, $op);
+    };
+}
+
+
+=item right($op)
+
+Helper for expression() parser
+
+=cut
+sub prefix {
+    my $op = shift or croak 'No op';
+    my $prefix;
+    $prefix = sub {
+        my $p = shift or croak 'No p';
+        return choice($p, listseq($op, recur($prefix, $p)));
+    };
+    return $prefix;
 }
 
 
@@ -568,6 +592,67 @@ sub mostn {
     return (\@mosts, $max);
 }
 
+=item do_applicative($star, $pure, $f, @values)
+
+Does an application of a series of applicative functors
+
+  $pure    :: a -> F a
+  $combine :: F (a -> b) -> F a -> F b
+  $f       :: (a,b ...) -> z
+  $values  :: (a,b ...)
+
+f is then transformed into
+  $cf      :: F (a -> b -> ... -> z)
+
+Example: The list [] functor
+
+We need to supply the appropiate pure and combine functions.
+
+list_pure is a function that takes a value, and puts in into the functor, ie. the list:
+  sub list_pure {
+      my ($a) = @_;
+      return [ $a ];
+  }
+
+list_combine take a list of functions, and a list of values and combines the two:
+  sub list_combine {
+      my ($ff, $fv) = @_;
+      my @ret = ();
+      my ($f, $v);
+      for $f(@$ff) {
+          for $v(@$fv) {
+              push @ret, $f->($v);
+          }
+      }
+      return \@ret;
+  }
+
+Note, if $ff contains only one function, list_compine works like a simple map.
+
+Now, you can do eg.
+
+  do_applicative(\&list_pure,
+                 \&list_combine,
+                 sub { ($a,$b) = @_; "$a,$b" },
+                 [1..2],
+                 ['a'..'b']);
+
+     -> ['1,a', '1,b','2,a', '2,b']
+
+=cut
+sub do_applicative {
+    my $pure     = shift or croak 'No pure';
+    my $combine  = shift or croak 'No combine';
+    my $f        = shift or croak 'No f';
+
+    my $cf = $pure->(ncurry($f, scalar @_)); # TODO: curry   -> partial
+                                             #       ncurry  -> curry
+    my $v;
+    while (defined ($v = shift @_)) {
+        $cf = $combine->($cf,$v);
+    }
+    return $cf;
+}
 
 
 ####################### Simple calculator ####################################
