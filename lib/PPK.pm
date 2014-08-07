@@ -6,10 +6,11 @@ use Ted::Lambda qw( ncurry );
 
 require Exporter;
 our @ISA     = ('Exporter');
-our @EXPORT = qw(do_applicative pure zero char re
+our @EXPORT = qw(pure zero char re recur
                  seq predicate choice many many1 sepby sepby1 endby1
                  chainr1 chainl1 bracket first1 second1 last1 token chartkn
-                 left right prefix expression);
+                 expression left right prefix
+                 do_applicative);
 
 =head1 NAME
 
@@ -119,28 +120,6 @@ sub bindp {
     };
 }
 
-### Make a lazy parser generator
-### Example
-###    strict: many($p)
-###    lazy  : recur(\&many, $p)
-###
-### This is necessary when constructing recursive parsers
-### NB:: There is 2 kinds of recursion:
-###            - recursion using parser
-###            - recursion using a parser generator.
-###      recur works with parser generators, and not with parsers.
-sub recur {
-    my $f    = shift;# or croak 'No f';
-    my $args = \@_;
-    my $p    = undef;
-
-    sub {
-        # Optimization, keep the generated parser for next time.
-        $p = $f->(@$args) if ! defined $p;
-        return $p->(@_);
-    };
-}
-
 
 ### TODO: End of file, and not end of file
 sub string2errmsg {
@@ -231,6 +210,35 @@ sub re {
         }
     };
 }
+
+=item recur(\&pg, $arg1 ...)
+
+Make a lazy parser generator for use in recursive parsers.
+
+Example
+   strict: many($p)
+   lazy  : recur(\&many, $p)
+
+This is necessary when constructing recursive parsers
+NB:: There is 2 kinds of recursion:
+           - recursion using parser
+           - recursion using a parser generator.
+recur() works with parser generators, and not with parsers.
+
+=cut
+sub recur {
+    my $f    = shift or croak 'No f';
+    my $args = \@_;
+    my $p    = undef;
+    
+    return sub {
+        # Optimization, keep the generated parser for next time.
+        $p = $f->(@$args) if ! defined $p;
+        return $p->(@_);
+    };
+}
+
+
 
 =item seq($f, $p1, $p2 ...)
 
@@ -382,10 +390,11 @@ sub chainr1 {
                       pure([])));
 }
 
+### TODO: POD
 sub bracket {
     my $open  = shift or croak 'No open';
     my $p     = shift or croak 'No p';
-    my $close = shift or croak 'No close';
+    my $close = shift // $p;
 
     return seq(\&rtsecond, $open, $p, $close);
 }
