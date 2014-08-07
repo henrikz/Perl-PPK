@@ -4,6 +4,7 @@ use Test::More;
 use Test::Deep;
 
 use strict;
+use Carp;
 
 ## Helper functions
 my $id = sub {
@@ -139,5 +140,57 @@ subtest "Higher level parser combinations" => sub {
                "bracket parser");
                    
 };
+
+
+sub arithmetic {
+    my $p = shift or croak 'No p';
+    return expression($p,
+                      prefix(choice(chartkn('+'), chartkn('-'))),
+                      left(chartkn('^')),
+                      left(choice(chartkn('*'), chartkn('/'))),
+                      left(choice(chartkn('+'), chartkn('-'))),
+                      right(chartkn('&')),
+                      right(chartkn('|')));
+}
+
+subtest "expression parser" => sub {
+    my $exp = arithmetic(token('\d+', 'number'));
+
+    cmp_deeply($exp->(' 1 '),
+               [1, ' '],
+               "atomic expression");
+
+    cmp_deeply($exp->('--+22'),
+               [['-',['-',['+', 22]]], ''],
+               "prefix operator");
+
+    cmp_deeply($exp->('1 + 2 * 3 + 4 * 5 ^ 6'),
+               [['+',['+',1,['*',2,3]],['*',4,['^',5,6]]],''],
+               "left associative infix with precedence");
+
+    cmp_deeply($exp->('1 | 2 & 3 & 4 | 5'),
+               [['|',1,['|',['&',2,['&',3,4]],5]],''],
+               "right associative infix with precedence");
+
+    cmp_deeply($exp->('11 + 7 & 8 ^ - 3 | 19'),
+               [['|',['&',['+',11,7],['^',8,['-', 3]]],19],''],
+               "left and right infix, and prefix operators");
+
+    my $bracket_exp;
+    $bracket_exp = arithmetic(choice(bracket(char('('), sub { $bracket_exp }, char(')')),
+                                     token('\d+', 'number')));
+
+    cmp_deeply($bracket_exp->('11 + 7 & 8 ^ - 3 | 19'),
+               [['|',['&',['+',11,7],['^',8,['-', 3]]],19],''],
+               "left and right infix, and prefix operators with brackets allowed");
+
+    cmp_deeply($bracket_exp->('(1+2)*4^(5/6)'),
+               [['*',['+',1,2],['^',4,['/',5,6]]],''],
+               "bracketed expressions, using recursive expression parser");
+               
+    
+};
+
+### TODO: Thorough testing of recursion
 
 done_testing();

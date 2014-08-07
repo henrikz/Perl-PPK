@@ -8,7 +8,7 @@ require Exporter;
 our @ISA     = ('Exporter');
 our @EXPORT = qw(do_applicative pure zero char re
                  seq predicate choice many many1 sepby sepby1 endby1
-                 chainr1 chainl1 bracket first1 second1 last1
+                 chainr1 chainl1 bracket first1 second1 last1 token chartkn
                  left right prefix expression);
 
 =head1 NAME
@@ -135,7 +135,7 @@ sub recur {
     my $p    = undef;
 
     sub {
-        # Optimization, don't know if it works
+        # Optimization, keep the generated parser for next time.
         $p = $f->(@$args) if ! defined $p;
         return $p->(@_);
     };
@@ -240,7 +240,7 @@ Combines the parsed values into a list.
 
 
 Sample:
-  seq(char('a'), char('b'))
+  seq($f, char('a'), char('b'))
 
 This parser will parse 'ab', yielding $f->('a','b') as it's parsed value.
 
@@ -399,23 +399,17 @@ sub second1 {
 }
 
 sub last1 {
-    my @args = @_;
-    
-    return seq(\&rtlast, @args);
+    return seq(\&rtlast, @_);
 }
 
 
 sub token {
-    my $pat         = shift;
-    my $description = shift // $pat;
-    
-    return last1(re('\s*'), re($pat, $description));
+    return last1(re('\s*'), re(@_));
 }
 
 
-sub chartk {
-    my $c = shift;
-    return last1(re('\s*'), char($c));
+sub chartkn {
+    return last1(re('\s*'), char(@_));
 }
 
 
@@ -426,11 +420,9 @@ arithmetic or logic expression. The parser returns a parse tree.
 
 You need to provide
    $p         Parser for the basic expression
-   $operator  These provide parsers for the operator expressions, and they have to
-              be mentioned in precedence order.
-                  left(char('-'))    - Makes a left associative '-' infix operator.
-                  right(char('|'))   - Makes a right associative '|' infix operator
-                  prefix(char('-'))  - Makes a '-' prefix operator
+   $operator  Parser generators in precedence order
+
+The parser generators that can be used with expression(), are: left, right, and prefix.
 
 Example: a simple parser for arithmetic expressions
 
@@ -458,7 +450,8 @@ sub expression {
 
 =item left($op)
 
-Helper for expression() parser
+Creates a left associative infix operator for use in the expression() parser generator.
+See expression() for sample usage.
 
 =cut
 sub left {
@@ -472,7 +465,8 @@ sub left {
 
 =item right($op)
 
-Helper for expression() parser
+Creates a right associative infix operator for use in the expression() parser generator.
+See expression() for sample usage.
 
 =cut
 sub right {
@@ -484,9 +478,10 @@ sub right {
 }
 
 
-=item right($op)
+=item prefix($op)
 
-Helper for expression() parser
+Creates a prefix operator for use in the expression() parser generator.
+See expression() for sample usage.
 
 =cut
 sub prefix {
@@ -527,10 +522,6 @@ sub rtfirst {
 sub rtsecond {
     shift();
     return shift();
-}
-
-sub cat {
-    return join '', @_;
 }
 
 sub consrtree {
@@ -652,95 +643,6 @@ sub do_applicative {
         $cf = $combine->($cf,$v);
     }
     return $cf;
-}
-
-
-####################### Simple calculator ####################################
-my $number = token('\d+', "a number");
-
-my $addexp;
-my $atom = choice($number,
-                  bracket(chartk('('),
-                          sub { $addexp }, # Mutual recursion//This is the only way
-                          chartk(')')));
-
-my $addop   = token('[+\-]', "'+' or '-'");
-
-my $multop  = token('[*/]', "'*' or '/'");
-
-my $multexp = chainl1($atom, $multop);
-
-$addexp     = chainl1($multexp, $addop);
-
-my $exp     = first1($addexp, re('\s*'));
-
-##################### Logical expression parser ############################
-my $ident    = token("[[:alpha:]_-]+", "an identifier");
-
-my $logexp;
-
-my $latom    = choice(bracket(chartk('('),
-                              sub { $logexp },
-                              chartk(')')),
-                      $ident);
-
-my $unaryexp = choice(listseq(token('not'), $latom),
-                      $latom);
-
-my $andexp   = chainl1($unaryexp, token('and'));
-
-my $orexp    = chainl1($andexp, token('or'));
-
-$logexp = $orexp;
-
-sub logparse {
-    return $logexp->(@_);
-}
-
-##################### Lisp like log expressions #############################
-my $sexp;
-
-$sexp = choice($ident,
-               bracket(chartk('('),
-                       cons2(token('and|or|not|none-of'), many(sub { $sexp })),
-                       chartk(')')));
-
-sub lisp {
-    return $sexp->(@_);
-}
-
-##################### Other functions #######################################
-sub parse {
-    my $inp = shift;
-    my $result = $exp->($inp);
-    if (ref $result ne 'ARRAY') {
-        print "No parse";
-        return $result;
-    }
-    my ($tree, $tail) = @$result;
-    
-    print "Tail: |$tail|\n";
-    return evaluate($tree);
-}
-
-{
-    my $ops =
-      { '+' => sub { shift() + shift() },
-        '-' => sub { shift() - shift() },
-        '*' => sub { shift() * shift() },
-        '/' => sub { shift() / shift() }
-      };
-
-    sub evaluate {
-        my $tree = shift;
-        if (ref $tree eq 'ARRAY') {
-            my ($op, $l, $r) = @$tree;
-            return $ops->{$op}->(evaluate($l), evaluate($r));
-        }
-        else {
-            return $tree;
-        }
-    }
 }
 
 1;
