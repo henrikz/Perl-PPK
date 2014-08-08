@@ -17,6 +17,7 @@ my $array = sub {
 
 my $number = PPK::re('[[:digit:]]+', 'number');
 
+
 subtest "Basic non-consuming parsers" => sub {
     cmp_deeply(pure('value')->('body'), ['value', 'body'], "pure parser");
 
@@ -127,13 +128,13 @@ subtest "Repetetive parser combinations" => sub {
 };
 
 subtest "Higher level parser combinations" => sub {
-    cmp_deeply(chainl1($number, PPK::re('[+\-]'))->("1+2-3+4"),
+    cmp_deeply(PPK::chainl1($number, PPK::re('[+\-]'))->("1+2-3+4"),
                [['+', ['-', ['+', '1', '2'], '3'], '4'],''],
-               "chainl1 parser (left associative infix)");
+               "PPK::chainl1 parser (left associative infix)");
 
-    cmp_deeply(chainr1(PPK::re('[a-z]'), PPK::re('[=$]'))->('a$b=c$d'),
+    cmp_deeply(PPK::chainr1(PPK::re('[a-z]'), PPK::re('[=$]'))->('a$b=c$d'),
                [['$', 'a', ['=', 'b', ['$', 'c', 'd']]], ''],
-               "chainr1 parser (right associative infix)");
+               "PPK::chainr1 parser (right associative infix)");
 
     cmp_deeply(bracket(char('['), $number, char(']'))->('[15]'),
                ['15', ''],
@@ -145,16 +146,18 @@ subtest "Higher level parser combinations" => sub {
 sub arithmetic {
     my $p = shift or croak 'No p';
     return expression($p,
+                      right(pure('$')),
                       prefix(choice(chartkn('+'), chartkn('-'))),
                       left(chartkn('^')),
                       left(choice(chartkn('*'), chartkn('/'))),
                       left(choice(chartkn('+'), chartkn('-'))),
                       right(chartkn('&')),
-                      right(chartkn('|')));
+                      right(chartkn('|')),
+                      right(chartkn('$')));
 }
 
 subtest "expression parser" => sub {
-    my $exp = arithmetic(token('\d+', 'number'));
+    my $exp = arithmetic(token('[[:digit:]]+', 'number'));
 
     cmp_deeply($exp->(' 1 '),
                [1, ' '],
@@ -178,14 +181,15 @@ subtest "expression parser" => sub {
 
     my $bracket_exp;
     $bracket_exp = arithmetic(choice(bracket(char('('), sub { $bracket_exp }, char(')')),
-                                     token('\d+', 'number')));
+                                     token('[[:digit:]]+', 'number'),
+                                     token('[[:alpha:]]+', 'identifier')));
 
     cmp_deeply($bracket_exp->('11 + 7 & 8 ^ - 3 | 19'),
                [['|',['&',['+',11,7],['^',8,['-', 3]]],19],''],
                "left and right infix, and prefix operators with brackets allowed");
 
-    cmp_deeply($bracket_exp->('(1+2)*4^(5/6)'),
-               [['*',['+',1,2],['^',4,['/',5,6]]],''],
+    cmp_deeply($bracket_exp->('(1+2)*f 4^(5/6)'),
+               [['*',['+',1,2],['^',['$','f',4],['/',5,6]]],''],
                "bracketed expressions, using recursive expression parser");
                
     

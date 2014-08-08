@@ -8,7 +8,7 @@ require Exporter;
 our @ISA     = ('Exporter');
 our @EXPORT = qw(pure zero char re recur
                  seq predicate choice many many1 sepby sepby1 endby1
-                 chainr1 chainl1 bracket first1 second1 last1 token chartkn
+                 bracket first1 second1 last1 token chartkn
                  expression left right prefix
                  do_applicative);
 
