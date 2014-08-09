@@ -159,8 +159,7 @@ sub zero {
 
 =item char($c)
 
-Parses character $c. If the first character found it not equal to $c, this
-parser fails.
+Parses character $c. Fails if the first character found it not equal to $c.
 
 =cut
 sub char {
@@ -186,6 +185,15 @@ You can optionally supply:
   $f     map function to be applied to the parsed value
   $desc  description to be used for error reporting, eg. 'number' or 'float' or 'string'
 
+Note the meaning of the special regex characters [^$.]:
+
+   ^,$   - matches beginning and end of line respectively.
+   .     - matches every character, including newline.
+
+Space - including newline - will be discarded from the regex, allowing
+you to format your regex nicely. If you need to match a space, you will
+need to use \s or [:space:].
+
 =cut
 sub re {
     my $f;
@@ -195,12 +203,11 @@ sub re {
         $s = shift or croak 'No s';
     }
     my $description = shift || $s;
-    
-    my $regex = qr{^($s)(.*)$};
+    my $regex = qr{\A($s)(.*)\z}xms;
     
     sub {
         my $inp = shift;
-        my ($s1,$s2) = $inp =~ m{$regex};
+        my ($s1,$s2) = $inp =~ $regex;
         if (defined $1) {
             $s1 = $f->($s1) if defined $f;
             return pure($s1)->($s2);
