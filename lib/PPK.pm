@@ -178,19 +178,24 @@ Helper function for calling parsers with the right input type.
 sub parse {
     my $parser = shift or croak 'No parser';
     my $string = shift // croak 'No string';
-    my $error  = shift || sub { return shift() };
+    my $error  = shift;
 
     my $result = $parser->($string);
+    ## Succesful parse
     if (ref $result eq 'ARRAY') {
         return (shift @$result);
     }
+    ## Error using error function
     elsif ($error) {
-        # TODO: Question: should result also take the string input as parameter?
         return $error->($result);
     }
+    ## Croak error
     else {
-        # TODO: Must croak here instead of just returning.
-        return $error;
+        my $expect = $result->{expected};
+        if (ref $expect eq 'ARRAY') {
+            $expect = "one of [" . join(']|[', @$expect) . "]";
+        }
+        croak "$result->{type}: Expected $expect in input [$result->{input}]";
     }
 }
 
