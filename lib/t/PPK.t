@@ -5,6 +5,7 @@ use Test::Deep;
 
 use strict;
 use Carp;
+use Try::Tiny;
 
 ## Helper functions
 my $id = sub {
@@ -274,6 +275,31 @@ subtest "expression parser" => sub {
                
     
 };
+
+subtest "the helper function parse()" => sub {
+    my $exp    = arithmetic(token('[[:digit:]]+', 'number'));
+
+    cmp_deeply(parse($exp, '1+2+3'), ['+', ['+', 1, 2], 3], "Function parse() succesful");
+
+    my $message = '';
+    try {
+        parse($exp, '1+2+3 blah');
+    } catch {
+        $message = $_;
+    };
+
+    ok($message =~ m|\[ blah\]|,    "checking error message from parse() for not reaching end-of-input");
+
+    ok($message =~ m|end-of-input|, "checking error message from parse() for not reaching end-of-input /2");
+
+    ok($message =~ m|Parse error|, "checking error message from parse() for not reaching end-of-input /2");
+
+    cmp_deeply(parse($exp, '1+2+3 blah', sub { shift() }),
+               superhashof({ input => ' blah', expected => '>end-of-input<'}),
+               "parse() function with a supplied error function");
+
+};
+
 
 ### TODO: Thorough testing of recursion
 

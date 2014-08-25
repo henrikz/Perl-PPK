@@ -176,17 +176,26 @@ Helper function for calling parsers with the right input type.
 
 =cut
 sub parse {
-    my $parser = shift or croak 'No parser';
-    my $string = shift // croak 'No string';
-    my $error  = shift;
+    my $parser       = shift or croak 'No parser';
+    my $input        = shift // croak 'No input';
+    my $error        = shift;
+    my $end_of_input = '\A\z';
 
-    my $result = $parser->($string);
+    my $result = $parser->($input);
     ## Succesful parse
     if (ref $result eq 'ARRAY') {
-        return (shift @$result);
+        my ($ptree, $rest) = @$result;
+        ## Check for end-of-input 
+        if ($rest !~ m/$end_of_input/xms) {
+            ## Error: We are not at the end of the input string after parse.
+            $result = zero('>end-of-input<')->($rest);
+        }
+        else {
+            return $ptree;
+        }
     }
     ## Error using error function
-    elsif ($error) {
+    if ($error) {
         return $error->($result);
     }
     ## Croak error
@@ -363,10 +372,10 @@ need to use \s or [:space:].
 =cut
 sub re {
     my $f;
-    my $s           = shift or croak 'No s';
+    my $s           = shift // croak 'No s';
     if ( ref $s eq 'CODE') {
         $f = $s;
-        $s = shift or croak 'No s';
+        $s = shift // croak 'No s';
     }
     my $description = shift || $s;
     my $regex = qr{\A($s)(.*)\z}xms;
