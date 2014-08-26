@@ -2,7 +2,6 @@ package PPK;
 
 use strict;
 use Carp;
-use Ted::Lambda qw( ncurry );
 
 require Exporter;
 our @ISA     = ('Exporter');
@@ -229,7 +228,7 @@ $v will be the parser value returned from the parser.
 
 =cut
 sub pure {
-    my $v = shift; croak if !defined $v;
+    my $v = shift;
     return sub {
         my $inp = shift;
         return [$v, $inp];
@@ -827,13 +826,31 @@ sub do_applicative {
     my $combine  = shift or croak 'No combine';
     my $f        = shift or croak 'No f';
 
-    my $cf = $pure->(ncurry($f, scalar @_)); # TODO: curry   -> partial
-                                             #       ncurry  -> curry
+    my $cf = $pure->(curry($f, scalar @_));
+
     my $v;
     while (defined ($v = shift @_)) {
         $cf = $combine->($cf,$v);
     }
     return $cf;
+}
+
+
+# curry($f, $n)
+# Makes $f a curried function of $n variables
+
+# Ex. plus in 3 steps
+#   *plus = curry(sub { shift() + shift() + shift() }, 3)
+#   plus(1)->(2)->(3)    ->  1 + 2 + 3 (but in 3 steps istead of 1)
+sub curry {
+   my $f = shift or die 'No f';
+   my $n = shift;
+   my @args = @_;
+
+   return sub {
+       my @args = (@args, @_);
+       return (@args >= $n)? $f->(@args) : curry($f, $n, @args);
+   };
 }
 
 1;
