@@ -8,7 +8,7 @@ our @ISA     = ('Exporter');
 our @EXPORT = qw(parse pure zero char re recur
                  seq predicate choice many many1 sepby sepby1 endby1
                  bracket first1 second1 last1 token chartkn
-                 expression left right prefix
+                 expression left right non prefix
                  do_applicative);
 
 
@@ -667,6 +667,31 @@ sub right {
     };
 }
 
+=item non($op)
+
+Creates a non associative infix operator for in the expression parser generator.
+A non associative operator is an operator that cannot be used next to itself, or
+next to another non-associative operator on the same precedence levet.
+
+Eq. the '==' operator in Perl. You can write '1 == 1' but not '1 == 1 == 1'.
+See expression() for sample usage.
+
+=cut
+sub non {
+    my $op = shift or croak 'No op';
+    return sub {
+        my $p = shift or croak 'No p';
+        return seq(sub {
+                       my ($v1, $rest) = @_;
+                       if ($rest) {
+                           my ($op, $v2) = @$rest;
+                           return [$op, $v1, $v2];
+                       } else {
+                           return $v1;
+                       }
+                   }, $p, choice(listseq($op, $p), pure()));
+    };
+}
 
 =item prefix($op)
 
