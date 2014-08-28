@@ -6,7 +6,7 @@ use Carp;
 require Exporter;
 our @ISA     = ('Exporter');
 our @EXPORT = qw(parse pure zero char re recur
-                 seq predicate choice many many1 sepby sepby1 endby1
+                 seq predicate choice many many1 sepby1 endby1
                  bracket first1 second1 last1 token chartkn
                  expression left right non prefix
                  do_applicative);
@@ -552,23 +552,36 @@ sub endby1 {
     return many1(first1($p, $s));
 }
 
+## Makes a chained infix expression string into an array.
+## eg: chain1(re('\d+'), char('+'))->('1+2+3') -> [1,'+',2,'+',3]
+sub chain1 {
+    my $p  = shift or croak 'No p';
+    my $op = shift or croak 'No s';
+    my $f  = shift;
+    
+    return seq(sub {
+                   my ($v1, $vrest) = @_;
+                   return $v1 if @$vrest == 0;
+                   my @ret = map { @$_ } @$vrest;
+                   unshift @ret, $v1;
+                   return $f? $f->(\@ret) : \@ret;
+               }, $p, many(listseq($op, $p)));
+}
+
 ### Left associative operators
 sub chainl1 {
-    my $p = shift or croak 'No p';
-    my $s = shift or croak 'No s';
+    my $p  = shift or croak 'No p';
+    my $op = shift or croak 'No s';
 
-    return seq(\&map2ltree, $p, many(listseq($s, $p)));
+    return chain1($p, $op, \&make_ltree);
 }
 
 ## Right associative operators
 sub chainr1 {
-    my $p  = shift or croak 'No p';
-    my $s  = shift or croak 'No s';
+    my $p   = shift or croak 'No p';
+    my $op  = shift or croak 'No s';
 
-    return seq(\&consrtree,
-               $p,
-               choice(listseq($s, recur(\&chainr1, $p, $s)),
-                      pure([])));
+    return chain1($p, $op, \&make_rtree);
 }
 
 ### TODO: POD
@@ -648,7 +661,7 @@ sub left {
     my $op = shift or croak 'No op';
     return sub {
         my $p = shift or croak 'No p';
-        return chainl1($p, $op);
+        return chain1($p, $op, \&make_ltree);
     };
 }
 
@@ -663,7 +676,7 @@ sub right {
     my $op = shift or croak 'No op';
     return sub {
         my $p = shift or croak 'No p';
-        return chainr1($p, $op);
+        return chain1($p, $op, \&make_rtree);
     };
 }
 
@@ -739,24 +752,6 @@ sub rtsecond {
     return shift();
 }
 
-sub consrtree {
-    my ($x, $recur) = @_;
-    return $x if ! @$recur;
-    my ($op, $xtree) = @$recur;
-    return [ $op, $x, $xtree ]
-}
-
-sub map2ltree {
-    my $left  = shift or croak 'No left';
-    my $pairs = shift or croak 'No pairs';
-    
-    my $pair;
-    while (defined ($pair = shift @$pairs)) {
-        my ($op, $right) = @$pair;
-        $left = [$op, $left, $right];
-    }
-    return $left;
-}
 
 ###
 sub flatten {
@@ -876,6 +871,33 @@ sub curry {
        my @args = (@args, @_);
        return (@args >= $n)? $f->(@args) : curry($f, $n, @args);
    };
+}
+
+sub make_ltree {
+    my $lexp  = shift or croak 'No lexp';
+    my $f     = shift;
+    
+    my $ltree = shift @$lexp;
+    
+    while (scalar @$lexp) {
+        my ($op, $e2) = (shift(@$lexp), shift(@$lexp));
+        $ltree = $f? $f->($op, $ltree, $e2) : [$op, $ltree, $e2];
+    }
+    return $ltree;
+}
+
+sub make_rtree {
+    my $rexp = shift or croak 'No rexp';
+    my $f    = shift;
+    my $e1   = shift @$rexp;
+    
+    if (scalar @$rexp) {
+        my @ret = (shift @$rexp, $e1, make_rtree($rexp));
+        return $f? $f->(@ret) : \@ret;
+    }
+    else {
+        return $e1;
+    }
 }
 
 1;
