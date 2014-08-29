@@ -221,16 +221,18 @@ subtest "Higher level parser combinations" => sub {
 
 sub arithmetic {
     my $p = shift or croak 'No p';
+    my $f = shift;
     return expression($p,
-                      right(pure('$')),
-                      prefix(choice(chartkn('+'), chartkn('-'))),
-                      left(chartkn('^')),
-                      left(choice(chartkn('*'), chartkn('/'))),
-                      left(choice(chartkn('+'), chartkn('-'))),
-                      right(chartkn('&')),
-                      right(chartkn('|')),
-                      right(chartkn('$')));
+                      right(pure('$'), $f),
+                      prefix(choice(chartkn('+'), chartkn('-')), $f),
+                      right(chartkn('^'), $f),
+                      left (choice(chartkn('*'), chartkn('/')), $f),
+                      left (choice(chartkn('+'), chartkn('-')), $f),
+                      right(chartkn('&'), $f),
+                      right(chartkn('|'), $f),
+                      right(chartkn('$'), $f));
 }
+
 
 subtest "expression parser" => sub {
     my $exp = arithmetic(token('[[:digit:]]+', 'number'));
@@ -275,6 +277,35 @@ subtest "expression parser" => sub {
                
     
 };
+
+
+my $arithmetic_functions = {
+    '^' => sub { my ($a, $b) = @_; $a ** $b },
+    '*' => sub { my ($a, $b) = @_; $a * $b },
+    '/' => sub { my ($a, $b) = @_; $a / $b },
+    '+' => sub { my ($a, $b) = @_; defined($b)? $a + $b :  $a },
+    '-' => sub { my ($a, $b) = @_; defined($b)? $a - $b : -$a },
+};
+
+
+subtest "expression parser with handling function" => sub {
+    my $exp;
+    $exp = arithmetic(choice(bracket(chartkn('('), sub { $exp }, chartkn(')')),
+                             token('[[:digit:]]+', 'number')),
+                      sub { my $op = shift;
+                            $arithmetic_functions->{$op}->(@_);
+                        });
+    
+    test_parse($exp, "2 ^ 3 ^ 2 + 2 * 256",
+               1024,
+               "common left and right associative operators");
+
+    test_parse($exp, "((2 ^ 3) ^ 2) / (2 * 4) + 2 ^ - 2",
+               8.25,
+               "common left and right associative operators with prefix & parenthesis");
+   
+};
+
 
 subtest "the helper function parse()" => sub {
     my $exp    = arithmetic(token('[[:digit:]]+', 'number'));

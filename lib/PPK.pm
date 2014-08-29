@@ -659,9 +659,11 @@ See expression() for sample usage.
 =cut
 sub left {
     my $op = shift or croak 'No op';
+    my $f  = shift;
+    
     return sub {
         my $p = shift or croak 'No p';
-        return chain1($p, $op, \&make_ltree);
+        return chain1($p, $op, $f ? sub { make_ltree(shift(), $f) } : \&make_ltree);
     };
 }
 
@@ -674,9 +676,11 @@ See expression() for sample usage.
 =cut
 sub right {
     my $op = shift or croak 'No op';
+    my $f  = shift;
+    
     return sub {
         my $p = shift or croak 'No p';
-        return chain1($p, $op, \&make_rtree);
+        return chain1($p, $op, $f ? sub { make_rtree(shift(), $f) } : \&make_rtree);
     };
 }
 
@@ -694,11 +698,12 @@ sub non {
     my $op = shift or croak 'No op';
     return sub {
         my $p = shift or croak 'No p';
+        my $f;
         return seq(sub {
                        my ($v1, $rest) = @_;
                        if ($rest) {
                            my ($op, $v2) = @$rest;
-                           return [$op, $v1, $v2];
+                           return $f? $f->($op, $v1, $v2) : [$op, $v1, $v2];
                        } else {
                            return $v1;
                        }
@@ -714,10 +719,11 @@ See expression() for sample usage.
 =cut
 sub prefix {
     my $op = shift or croak 'No op';
+    my $f  = shift // sub { [@_] };
     my $prefix;
     $prefix = sub {
         my $p = shift or croak 'No p';
-        return choice($p, listseq($op, recur($prefix, $p)));
+        return choice($p, seq($f, $op, recur($prefix, $p)));
     };
     return $prefix;
 }
@@ -892,7 +898,7 @@ sub make_rtree {
     my $e1   = shift @$rexp;
     
     if (scalar @$rexp) {
-        my @ret = (shift @$rexp, $e1, make_rtree($rexp));
+        my @ret = (shift @$rexp, $e1, make_rtree($rexp, $f));
         return $f? $f->(@ret) : \@ret;
     }
     else {
