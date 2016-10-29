@@ -1,4 +1,4 @@
-use PPK;
+use Text::PPK;
 
 use Test::More;
 use Test::Deep;
@@ -16,7 +16,7 @@ my $array = sub {
     return [ @_ ];
 };
 
-my $number = PPK::re('[[:digit:]]+', 'number');
+my $number = Text::PPK::re('[[:digit:]]+', 'number');
 
 ### Basic test tool for parsers, that ensures a uniform way of testing.
 sub test_parse {
@@ -100,9 +100,9 @@ subtest "Basic consuming parsers" => sub {
                { expected => 'number', input => 'Wild Turkey 101' },
                "regex parser failing");
 
-    test_parse(parser      => PPK::re(sub { sprintf 'Proof: %s', shift() },
-                                      '[[:digit:]]+',
-                                      'US Proof'),
+    test_parse(parser      => Text::PPK::re(sub { sprintf 'Proof: %s', shift() },
+                                            '[[:digit:]]+',
+                                            'US Proof'),
                input       => '101 Wild Turkey',
                expected    => 'Proof: 101',
                unparsed    => ' Wild Turkey',
@@ -204,18 +204,18 @@ subtest "Repetetive parser combinations" => sub {
 };
 
 subtest "Higher level parser combinations" => sub {
-    test_parse(PPK::chainl1($number, PPK::re('[+\-]')), "1+2-3+4",
+    test_parse(Text::PPK::chainl1($number, Text::PPK::re('[+\-]')), "1+2-3+4",
                ['+', ['-', ['+', '1', '2'], '3'], '4'],
                "PPK::chainl1 parser (left associative infix)");
 
-    test_parse(PPK::chainr1(PPK::re('[a-z]'), PPK::re('[=$]')), 'a$b=c$d',
+    test_parse(Text::PPK::chainr1(Text::PPK::re('[a-z]'), Text::PPK::re('[=$]')), 'a$b=c$d',
                ['$', 'a', ['=', 'b', ['$', 'c', 'd']]],
                "PPK::chainr1 parser (right associative infix)");
 
     test_parse(bracket(char('['), $number, char(']')), '[15]',
                '15',
                "bracket parser");
-                   
+    
 };
 
 
@@ -274,7 +274,7 @@ subtest "expression parser" => sub {
                expected    => ['*',['+',1,2],['^',['$','f',4],['/',5,6]]],
                unparsed    => ' ',
                description => "bracketed expressions, using recursive expression parser");
-               
+    
     
 };
 
@@ -294,7 +294,7 @@ subtest "expression parser with handling function" => sub {
                              token('[[:digit:]]+', 'number')),
                       sub { my $op = shift;
                             $arithmetic_functions->{$op}->(@_);
-                        });
+                      });
     
     test_parse($exp, "2 ^ 3 ^ 2 + 2 * 256",
                1024,
@@ -303,7 +303,7 @@ subtest "expression parser with handling function" => sub {
     test_parse($exp, "((2 ^ 3) ^ 2) / (2 * 4) + 2 ^ - 2",
                8.25,
                "common left and right associative operators with prefix & parenthesis");
-   
+    
 };
 
 

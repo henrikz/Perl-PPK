@@ -1,4 +1,4 @@
-package PPK;
+package Text::PPK;
 
 use strict;
 use Carp;
