@@ -5,10 +5,10 @@ use Carp;
 
 require Exporter;
 our @ISA     = ('Exporter');
-our @EXPORT = qw(parse pure zero char re recur
+our @EXPORT = qw(parse pure zero char re recur fmap
                  seq predicate choice many many1 sepby1 endby1
                  bracket first1 second1 last1 token chartkn
-                 expression left right non prefix
+                 expression left right non prefix postfix
                  do_applicative);
 
 
@@ -85,7 +85,7 @@ It is important to note, that parser combinators combine parsers, and not parser
 Probably the first thing you would want to do, is to sequence parsers, so you can parse
 more the one character or regex. This is where the seq() parser comes in:
 
-  seq(sub { [shift(), shift()] }, char('a'), char('b'))->('ab')   -> [['a','b'], '']
+  seq(sub { [ @_ ] }, char('a'), char('b'))->('ab')   -> [['a','b'], '']
 
 The seq() parser builds on other - let's call them underlying - parsers that will be
 invoked in sequence. What then should seq() return as it's parser value? You need to decide
@@ -96,8 +96,8 @@ of the seq() parser.
 The next thing you would want, is choice. Say, you want to be able to parse a value that is
 either a word or a number. The choice() parser will let you do that.
 
-  choice(re('[:digit:]'), re('[:alpha:]')->('123ABC')   ->  [ 123,  'ABC']
-  choice(re('[:digit:]'), re('[:alpha:]')->('ABC123')   ->  ['ABC', '123']
+  choice(re('[[:digit:]]+'), re('[[:alpha:]]+'))->('123ABC')   ->  [ 123,  'ABC']
+  choice(re('[[:digit:]]+'), re('[[:alpha:]]+'))->('ABC123')   ->  ['ABC', '123']
 
 A choice parser will return the parser value from the parser that succeeded. 
 
@@ -726,6 +726,27 @@ sub prefix {
         return choice($p, seq($f, $op, recur($prefix, $p)));
     };
     return $prefix;
+}
+
+=item postfix($op)
+
+Creates a postfix operator for use in the expression() parser generator.
+See expression() for sample usage.
+
+=cut
+sub postfix {
+    my $op = shift or croak 'No op';
+    my $f  = shift // sub { [ @_ ] };
+    return sub {
+        my $p = shift or croak 'No p';
+        return seq(sub {
+                       my ($e, $ops) = @_;
+                       for my $op(@$ops) {
+                           $e = $f->($op, $e);
+                       }
+                       return $e;
+                   }, $p, many($op));
+    }
 }
 
 
